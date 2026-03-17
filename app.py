@@ -1,61 +1,42 @@
-# 1️ Import libraries
 import streamlit as st
 import pandas as pd
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.preprocessing import StandardScaler
+import joblib
+import matplotlib.pyplot as plt
 
-# 2️ Load dataset (make sure heart.csv is in same folder)
-df = pd.read_csv("heart.csv")
+# -----------------------------
+# Load saved models
+# -----------------------------
+log_model = joblib.load("log_model.pkl")
+tree_model = joblib.load("tree_model.pkl")
+scaler = joblib.load("scaler.pkl")
+columns = joblib.load("columns.pkl")
 
-# 3️ Preprocessing (same as training)
-
-# Replace 0 values
-df['Cholesterol'] = df['Cholesterol'].replace(0, df[df['Cholesterol'] != 0]['Cholesterol'].mean())
-df['RestingBP'] = df['RestingBP'].replace(0, df[df['RestingBP'] != 0]['RestingBP'].mean())
-
-# One-hot encoding
-df_encoded = pd.get_dummies(df, drop_first=True)
-
-# Convert to int
-df_encoded = df_encoded.astype(int)
-
-# Scale numerical features
 numerical_cols = ['Age', 'RestingBP', 'Cholesterol', 'MaxHR', 'Oldpeak']
-scaler = StandardScaler()
-df_encoded[numerical_cols] = scaler.fit_transform(df_encoded[numerical_cols])
 
-# Split features and target
-X = df_encoded.drop('HeartDisease', axis=1)
-y = df_encoded['HeartDisease']
-
-# 4️ Train models
-log_model = LogisticRegression()
-log_model.fit(X, y)
-
-tree_model = DecisionTreeClassifier(max_depth=4, random_state=42)
-tree_model.fit(X, y)
-
-# 5️ Streamlit UI
+# -----------------------------
+# UI
+# -----------------------------
+st.set_page_config(page_title="Heart Disease Predictor")
 st.title("❤️ Heart Disease Prediction App")
 
-st.write("Enter patient details below:")
+st.write("Fill patient details below:")
 
-# User inputs
+# Inputs
 age = st.slider("Age", 20, 80, 50)
 sex = st.selectbox("Sex", ["M", "F"])
 cp = st.selectbox("Chest Pain Type", ["ATA", "NAP", "TA", "ASY"])
-bp = st.slider("Resting Blood Pressure", 80, 200, 120)
+bp = st.slider("Resting BP", 80, 200, 120)
 chol = st.slider("Cholesterol", 100, 400, 200)
-fbs = st.selectbox("Fasting Blood Sugar > 120 mg/dl", [0, 1])
+fbs = st.selectbox("Fasting Blood Sugar (1 = High)", [0, 1])
 ecg = st.selectbox("Resting ECG", ["Normal", "ST", "LVH"])
 maxhr = st.slider("Max Heart Rate", 60, 200, 120)
 angina = st.selectbox("Exercise Angina", ["Y", "N"])
 oldpeak = st.slider("Oldpeak", 0.0, 6.0, 1.0)
 slope = st.selectbox("ST Slope", ["Up", "Flat", "Down"])
 
-# 6 Convert input into dataframe
+# -----------------------------
+# Prepare input
+# -----------------------------
 input_dict = {
     'Age': age,
     'RestingBP': bp,
@@ -76,30 +57,47 @@ input_dict = {
 
 input_df = pd.DataFrame([input_dict])
 
-# Ensure same column order
-input_df = input_df.reindex(columns=X.columns, fill_value=0)
+# Match training columns
+input_df = input_df.reindex(columns=columns, fill_value=0)
 
-# Scale input
+# Scale
 input_df[numerical_cols] = scaler.transform(input_df[numerical_cols])
 
-#  Prediction button
+# -----------------------------
+# Prediction
+# -----------------------------
 if st.button("Predict"):
 
-    # Logistic Regression prediction
-    log_pred = log_model.predict(input_df)[0]
     log_prob = log_model.predict_proba(input_df)[0][1]
-
-    # Decision Tree prediction
-    tree_pred = tree_model.predict(input_df)[0]
     tree_prob = tree_model.predict_proba(input_df)[0][1]
 
-    # Display results
     st.subheader("📊 Results")
 
-    st.write("### Logistic Regression")
-    st.write("Prediction:", "Heart Disease" if log_pred == 1 else "No Heart Disease")
-    st.write(f"Confidence: {log_prob:.2f}")
+    st.write(f"**Logistic Regression:** {'Heart Disease' if log_prob>0.5 else 'No Disease'} ({log_prob:.2f})")
+    st.write(f"**Decision Tree:** {'Heart Disease' if tree_prob>0.5 else 'No Disease'} ({tree_prob:.2f})")
 
-    st.write("### Decision Tree")
-    st.write("Prediction:", "Heart Disease" if tree_pred == 1 else "No Heart Disease")
-    st.write(f"Confidence: {tree_prob:.2f}")
+    # -----------------------------
+    # Comparison Chart
+    # -----------------------------
+    st.subheader("📈 Model Comparison")
+
+    fig, ax = plt.subplots()
+    ax.bar(["Logistic", "Decision Tree"], [log_prob, tree_prob])
+    ax.set_ylabel("Probability")
+    st.pyplot(fig)
+
+    # -----------------------------
+    # Feature Importance (Tree)
+    # -----------------------------
+    st.subheader("🔥 Feature Importance (Decision Tree)")
+
+    importance = tree_model.feature_importances_
+    feat_df = pd.DataFrame({
+        "Feature": columns,
+        "Importance": importance
+    }).sort_values(by="Importance", ascending=False).head(10)
+
+    fig2, ax2 = plt.subplots()
+    ax2.barh(feat_df["Feature"], feat_df["Importance"])
+    ax2.invert_yaxis()
+    st.pyplot(fig2)
